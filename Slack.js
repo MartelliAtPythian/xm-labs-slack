@@ -125,14 +125,21 @@ exports.getChannel = function( channelName ) {
 
 
 
-exports.archiveChannel = function( channelName ) {
-    
+exports.archiveChannel = function( channelName, token) {
+
     var channel = this.getChannel( channelName );
+    
+     if( channel === null ) {
+        console.log( 'Channel "' + channelName + '" not found.' );
+        return null;
+    }
+    
+    var channelPath = '/channels.archive?token=' + token + "&channel=" + channel.id
     
     var slackRequest = http.request({
         'endpoint': 'Slack',
-        'method': 'GET',
-        'path': 'api/channels.archive?token=' + http.authenticate( 'Slack' ) + "&channel=" + channel.id
+        'method': 'POST',
+        'path': channelPath
     });
     
     var slackResponse = slackRequest.write();
@@ -171,7 +178,17 @@ exports.getRoomHistory = function( channelName, count, latest, oldest ){
         return null;
     }
     
-    return slackBody.messages;
+    var history = 'History: \n';
+    for( var i in slackBody.messages ) {
+        if (slackBody.messages[i].type == "message") {
+            var userInfo = this.getUserInfo(slackBody.messages[i].user);
+            var messagePoster = userInfo.profile;
+            var userRealName = messagePoster.real_name;
+            var formattedTimestamp = this.unixToTimestamp(slackBody.messages[i].ts);
+            history = history + '\n' + slackBody.messages[i].text + ' ' + formattedTimestamp + ' ' + userRealName;
+        }
+    }     
+    return history;
     
 };
 
@@ -196,6 +213,24 @@ exports.getUserInfo = function( userid ) {
     
 }
 
+exports.inviteToChannel = function( token, channelID, userID ) {
+    var channelPath = '/channels.invite?token=' + token + '&channel=' + channelID + '&user=' + userID;
+    console.log('PATH' + channelPath);
+    var slackRequest = http.request({
+        'endpoint': 'Slack',
+        'method': 'POST',
+        'path': channelPath 
+    });
+
+    var slackResponse = slackRequest.write();
+    var slackBody = JSON.parse( slackResponse.body );
+    
+    if( !slackBody.ok ) {
+        console.log( 'Error ' + slackBody.error + ' inviting to channel "' + channelID + '"' );
+        return null;
+    }
+    return slackBody.user;
+};
 
 exports.postMessage = function( payload ) {
     
@@ -219,7 +254,10 @@ exports.postMessage = function( payload ) {
     
 };
 
-
+exports.unixToTimestamp = function(unixTime) {
+   var date = new Date(unixTime*1000);
+   return date;
+};
 
 jsonToQueryString = function(json) {
     return '?' + 
