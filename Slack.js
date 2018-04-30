@@ -1,65 +1,18 @@
 /*
  * Slack Shared Library
  *
- *  This shared library is for interacting with Slack to create a channel, retrieve channel history, and to get user info. 
- * 
- *  Exposed methods:
- *    createChannel - Creates a new Slack channel with the given name and return the channel info.
- *                    If the channel already exists, retrieve the details and return those
- *       channelName - The name of the channel to create
- *
- *    getTeam - Gets the Slack team info. Handy for creating links to channels
- *       
- *    getChannel - Gets the channel details. There isn't a good API for getting a specific channel by name, so we
- *                 have to iterate through each channel to get it. 
- *       channelName - The name of the channel to retrieve
- *
- *    getRoomHistory - Gets the room (channel) chat history. 
- *       channelName - required - The name of the channel to get
- *       count       - optional - The number of messages to get (the API defaults to 100)
- *       latest      - optional - The end of time range to include in results
- *       oldest      - optional - The start of the time range to get
- *
- *    getUserInfo - Gets the User info based on the User's id. The history returns the userid, not the username, so this can translate
- *       userid - The userid of the user to get (ex. U1234567890)
- *
- *    postMessage - Posts a message to the channel passed in the payload. (Payload details here: https://api.slack.com/methods/chat.postMessage)
- *       payload - The chat.postMessage payload. See below for an example.
- *       
- *  Usage: 
- *  
-    // Import the Slack shared library
-    var Slack = require( 'Slack' );
-    
-    // getRoomHistory
-    // Get the room (channel) history and build the text for insertion into a Service Desk ticket for example.
-    // The format will be Service Desk platform dependent. See the README.md file for details
-    chatData = Slack.getRoomHistory( room.toLowerCase() );
-    chatText = buildSlackText( chatData, room.toLowerCase() );
-    // createChannel
-    // Create a channel based on the `number` value and build a link for inclusion in emails
-    var channel = Slack.createChannel( data.properties.number );
-    var team    = Slack.getTeam();
-    data.properties.chat_link = 'https://' + team.name + '.slack.com/messages/#' + data.properties.number;
-    // postMessage
-    var text = "My text here. Click <https://xmatters.com | here> for a link!";
-    var payload = { 
-      "channel": "#general", 
-      "username": "xmatters",
-      "icon_url": "https://www.xmatters.com/wp-content/uploads/2016/12/xmatters-x-logo.png", 
-      "text": text
-    };
-    Slack.postMessage( payload );
-    
- *
+ * This shared library is for interacting with Slack to create a channel, retrieve channel history, and to get user info. 
+ * This library has been modified from the upstream project https://github.com/xmatters/xm-labs-slack project
+ *  The modified library can be found here: https://github.com/MartelliAtPythian/xm-labs-slack
  */
  
-exports.createChannel = function( channelName ) {
+exports.createChannel = function( channelName, token ) {
     // Prepare the HTTP request
+	var createPath = '/channels.create?token=' + token + '&name=' + channelName;
     var slackRequest = http.request({
         'endpoint': 'Slack',
         'method': 'POST',
-        'path': '/channels.create?token=' + http.authenticate( 'Slack' ) + '&name=' + channelName
+        'path': createPath
     });
 
     var slackResponse = slackRequest.write();
@@ -78,13 +31,14 @@ exports.createChannel = function( channelName ) {
 };
 
 
-exports.getTeam = function() {
+exports.getTeam = function(token) {
     // GET https://slack.com/api/team.info
     
+	var teamPath = '/team.info?token=' + token;
     var slackRequest = http.request({
         'endpoint': 'Slack',
         'method': 'GET',
-        'path': '/team.info?token=' + http.authenticate( 'Slack' )
+        'path': teamPath
     });
     
     var slackResponse = slackRequest.write();
@@ -97,12 +51,12 @@ exports.getTeam = function() {
 
 
 
-exports.getChannel = function( channelName ) {
-    
+exports.getChannel = function( channelName, token ) {
+    var channelPath = '/channels.list?token=' + token;
     var slackRequest = http.request({
         'endpoint': 'Slack',
         'method': 'GET',
-        'path': '/channels.list?token=' + http.authenticate( 'Slack' )
+        'path': channelPath
     });
     
     var slackResponse = slackRequest.write();
@@ -112,13 +66,15 @@ exports.getChannel = function( channelName ) {
         return null;
     }
     
+    console.log("Searching for " + channelName);
     
     for( var i in slackBody.channels ) {
-        console.log( 'Checking "' + slackBody.channels[i].name + '"' );
+        //console.log( 'Checking "' + i + "against " + slackBody.channels[i].name + '"' );
         if( slackBody.channels[i].name == channelName )
           return slackBody.channels[i];
     }
-            
+    console.log("Channel Not Found!");
+    
     return null;
             
 };
@@ -128,13 +84,13 @@ exports.getChannel = function( channelName ) {
 exports.archiveChannel = function( channelName, token) {
 
     var channel = this.getChannel( channelName );
-    
-     if( channel === null ) {
+	
+	if( channel === null ) {
         console.log( 'Channel "' + channelName + '" not found.' );
         return null;
     }
-    
-    var channelPath = '/channels.archive?token=' + token + "&channel=" + channel.id
+	
+    var channelPath = '/channels.archive?token=' + token + "&channel=" + channel.id;
     
     var slackRequest = http.request({
         'endpoint': 'Slack',
@@ -144,12 +100,11 @@ exports.archiveChannel = function( channelName, token) {
     
     var slackResponse = slackRequest.write();
     var slackBody     = JSON.parse( slackResponse.body );
-            
+           
+    return slackBody;			   
 };
 
-
-
-exports.getRoomHistory = function( channelName, count, latest, oldest ){
+exports.getRoomHistory = function( channelName, count, token, latest, oldest ){
   
     var channel = this.getChannel( channelName );
     
@@ -165,10 +120,11 @@ exports.getRoomHistory = function( channelName, count, latest, oldest ){
     parms += ( !!latest ? '&latest=' + latest : '' );
     parms += ( !!oldest ? '&oldest=' + oldest : '' );
     
+    var channelPath = '/channels.history?token=' + token + parms; 
     var slackRequest = http.request({
         'endpoint': 'Slack',
         'method': 'GET',
-        'path': '/channels.history?token=' + http.authenticate( 'Slack' ) + parms
+        'path': channelPath
     });
     
     var slackResponse = slackRequest.write();
@@ -178,28 +134,26 @@ exports.getRoomHistory = function( channelName, count, latest, oldest ){
         return null;
     }
     
-    var history = 'History: \n';
+  // This section parses the message contents into a human readable history log
+    var historyLog = '';
     for( var i in slackBody.messages ) {
         if (slackBody.messages[i].type == "message") {
             var userInfo = this.getUserInfo(slackBody.messages[i].user);
             var messagePoster = userInfo.profile;
             var userRealName = messagePoster.real_name;
             var formattedTimestamp = this.unixToTimestamp(slackBody.messages[i].ts);
-            history = history + '\n' + slackBody.messages[i].text + ' ' + formattedTimestamp + ' ' + userRealName;
+            historyLog = historyLog + '\n' + slackBody.messages[i].text + ' ' + formattedTimestamp + ' ' + userRealName;
         }
     }     
-    return history;
-    
+    return historyLog;
 };
 
-
-
-exports.getUserInfo = function( userid ) {
-    
+exports.getUserInfo = function( userid , token) {
+    var userPath = '/users.info?token=' + token + '&user=' + encodeURIComponent( userid ); 
     var slackRequest = http.request({
         'endpoint': 'Slack',
         'method': 'GET',
-        'path': '/users.info?token=' + http.authenticate( 'Slack' ) + '&user=' + encodeURIComponent( userid )
+        'path': userPath
     });
     
     var slackResponse = slackRequest.write();
@@ -211,7 +165,24 @@ exports.getUserInfo = function( userid ) {
     
     return slackBody.user;
     
-}
+};
+
+exports.lookupByEmail = function( email, token ) {
+    var emailPath = '/users.lookupByEmail?token=' + token + '&email=' + encodeURIComponent( email ); 
+    var slackRequest = http.request({
+        'endpoint': 'Slack',
+        'method': 'GET',
+        'path': emailPath
+    });
+
+    var slackResponse = slackRequest.write();
+    var slackBody = JSON.parse( slackResponse.body );
+    if( !slackBody.ok ) {
+        console.log( 'Error ' + slackBody.error + ' looking up user by email "' + email + '"' );
+        return null;
+    }
+    return slackBody.user;
+};
 
 exports.inviteToChannel = function( token, channelID, userID ) {
     var channelPath = '/channels.invite?token=' + token + '&channel=' + channelID + '&user=' + userID;
@@ -231,6 +202,7 @@ exports.inviteToChannel = function( token, channelID, userID ) {
     }
     return slackBody.user;
 };
+
 
 exports.postMessage = function( payload ) {
     
@@ -265,7 +237,6 @@ jsonToQueryString = function(json) {
             return encodeURIComponent(key) + '=' +
                 encodeURIComponent(json[key]);
         }).join('&');
-}
+};
 
-
-// 
+//
